@@ -6,6 +6,8 @@ from tensorflow.keras.models import load_model
 import pickle
 import cv2
 import pandas as pd
+import soundfile as sf
+import io
 
 st.set_page_config(
     page_title="Deep SER Detector",
@@ -22,12 +24,16 @@ st.markdown("""
         margin-bottom: 20px;
     }
     .result-box {
-        
+        background-color: #f0f2f6;
         padding: 20px;
         border-radius: 10px;
         text-align: center;
         margin-bottom: 20px;
         border: 2px solid #4CAF50;
+        color: #000000;
+    }
+    .result-box h1, .result-box h4 {
+        color: #000000 !important;
     }
     .stProgress > div > div > div > div {
         background-color: #4CAF50;
@@ -69,8 +75,8 @@ try:
 except Exception as e:
     st.error(f"Failed to load model! Error: {e}")
 
-def preprocess_audio(audio_file):
-    y, sr = librosa.load(audio_file, duration=5.0)
+def preprocess_audio(audio_data):
+    y, sr = librosa.load(audio_data, duration=5.0)
     mels = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
     mels_db = librosa.power_to_db(mels, ref=np.max)
     img_resized = cv2.resize(mels_db, (128, 128))
@@ -84,19 +90,35 @@ with col_upload:
     st.subheader("1. Upload Audio")
     uploaded_file = st.file_uploader("Format: WAV / MP3", type=["wav", "mp3"])
     
-    if uploaded_file is not None:
-        st.audio(uploaded_file, format='audio/wav')
-        analyze_btn = st.button("Analyze Now", use_container_width=True, type="primary")
-    else:
-        analyze_btn = False
+    audio_buffer = None
+    analyze_btn = False
 
+    if uploaded_file is not None:
+        try:
+            audio_bytes = uploaded_file.read()
+            audio_buffer = io.BytesIO(audio_bytes)
+
+            y_audio, sr_audio = librosa.load(audio_buffer, sr=None)
+            y_norm = librosa.util.normalize(y_audio)
+            
+            virtual_file = io.BytesIO()
+            sf.write(virtual_file, y_norm, sr_audio, format='WAV')
+            
+            st.audio(virtual_file, format='audio/wav')
+            analyze_btn = st.button("Analyze Now", use_container_width=True, type="primary")
+            
+        except Exception as e:
+            st.error(f"Error processing audio: {e}")
+    
 with col_result:
     st.subheader("2. Analysis Result")
     
-    if analyze_btn and uploaded_file is not None:
+    if analyze_btn and audio_buffer is not None:
         with st.spinner('Analyzing audio...'):
             try:
-                processed_data = preprocess_audio(uploaded_file)
+                audio_buffer.seek(0)
+                
+                processed_data = preprocess_audio(audio_buffer)
                 prediction = model.predict(processed_data)
                 probs = prediction[0]
                 
@@ -108,7 +130,7 @@ with col_result:
 
                 st.markdown(f"""
                 <div class="result-box">
-                    <h4 style="margin:0; color:#555;">Detected Emotion:</h4>
+                    <h4 style="margin:0;">Detected Emotion:</h4>
                     <h1 style="font-size: 3.5rem; margin: 10px 0;">{top_emotion.upper()}</h1>
                     <h3 style="color:#4CAF50;">Confidence: {top_conf*100:.2f}%</h3>
                 </div>
@@ -126,9 +148,9 @@ with col_result:
                         st.write(f"{row['Percentage']*100:.1f}%")
 
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Error during analysis: {e}")
     
     elif not analyze_btn and uploaded_file is not None:
         st.info("Click 'Analyze Now' to see the results.")
-    else:
+    elif uploaded_file is None:
         st.warning("Please upload an audio file in the left panel.")
