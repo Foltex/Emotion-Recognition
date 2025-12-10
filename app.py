@@ -65,7 +65,7 @@ st.markdown("---")
 
 @st.cache_resource
 def load_resources():
-    model = load_model('Resnet50_Model.h5')
+    model = load_model('model_finetuned.h5')
     with open('label_encoder.pkl', 'rb') as f:
         le = pickle.load(f)
     return model, le
